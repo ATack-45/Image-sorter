@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-sort_images.py — Sort images into Thermal/ or RGB/ by camera_source XMP tag.
+sort_images.py — Sort images by camera_source XMP tag and filename pattern.
 
   INFRARED     -> Thermal/
   MAIN_VISIBLE -> RGB/
+  *_R.jpg      -> R-JPG/   (radiometric, checked before metadata)
 """
 
 import argparse
@@ -19,6 +20,9 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".tif", ".tiff", ".png", ".dng", ".raw", ".
 # Matches both element and attribute forms, case-insensitive:
 #   <ns:CameraSource>VALUE</ns:CameraSource>
 #   camera_source="VALUE"
+# Matches radiometric JPG filenames: anything ending in _R.jpg (case-insensitive)
+_RJPG_RE = re.compile(r"_R\.jpe?g$", re.IGNORECASE)
+
 _TAG_RE = re.compile(
     rb"camera_?source\s*[=>\"']+\s*([A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE,
@@ -35,14 +39,18 @@ def extract_camera_source(path: Path) -> str | None:
     return m.group(1).decode("ascii", errors="replace").upper() if m else None
 
 
-def process_file(path: Path, thermal_dir: Path, rgb_dir: Path, move: bool) -> str:
-    source = extract_camera_source(path)
-    if source == "INFRARED":
-        dest_dir = thermal_dir
-    elif source == "MAIN_VISIBLE":
-        dest_dir = rgb_dir
+def process_file(path: Path, thermal_dir: Path, rgb_dir: Path, rjpg_dir: Path, move: bool) -> str:
+    # Filename check takes priority — radiometric JPGs are identified by name, not metadata.
+    if _RJPG_RE.search(path.name):
+        dest_dir = rjpg_dir
     else:
-        return f"  skip    {path.name}"
+        source = extract_camera_source(path)
+        if source == "INFRARED":
+            dest_dir = thermal_dir
+        elif source == "MAIN_VISIBLE":
+            dest_dir = rgb_dir
+        else:
+            return f"  skip    {path.name}"
 
     dest = dest_dir / path.name
     if move:
@@ -73,10 +81,11 @@ def main():
 
     thermal_dir = output_dir / "Thermal"
     rgb_dir = output_dir / "RGB"
-    thermal_dir.mkdir(parents=True, exist_ok=True)
-    rgb_dir.mkdir(parents=True, exist_ok=True)
+    rjpg_dir = output_dir / "R-JPG"
+    for d in (thermal_dir, rgb_dir, rjpg_dir):
+        d.mkdir(parents=True, exist_ok=True)
 
-    skip_dirs = {thermal_dir, rgb_dir}
+    skip_dirs = {thermal_dir, rgb_dir, rjpg_dir}
     files = [
         p for p in input_dir.rglob("*")
         if p.is_file()
@@ -90,15 +99,17 @@ def main():
 
     print(f"Found {len(files)} image file(s) — processing with {args.workers} worker(s)...")
 
-    thermal, rgb, skipped, errors = 0, 0, 0, 0
+    thermal, rgb, rjpg, skipped, errors = 0, 0, 0, 0, 0
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {pool.submit(process_file, f, thermal_dir, rgb_dir, args.move): f for f in files}
+        futures = {pool.submit(process_file, f, thermal_dir, rgb_dir, rjpg_dir, args.move): f for f in files}
         for future in as_completed(futures):
             try:
                 result = future.result()
                 if "Thermal" in result:
                     thermal += 1
+                elif "R-JPG" in result:
+                    rjpg += 1
                 elif "RGB" in result:
                     rgb += 1
                 else:
@@ -113,7 +124,8 @@ def main():
     print(f"\nDone.")
     print(f"  {op} to Thermal/ (INFRARED):     {thermal}")
     print(f"  {op} to RGB/     (MAIN_VISIBLE):  {rgb}")
-    print(f"  Skipped (no camera_source tag):   {skipped}")
+    print(f"  {op} to R-JPG/   (*_R.jpg):       {rjpg}")
+    print(f"  Skipped (no match):               {skipped}")
     if errors:
         print(f"  Errors:                           {errors}")
 

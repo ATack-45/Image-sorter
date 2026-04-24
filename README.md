@@ -1,14 +1,16 @@
 # image-sorter
 
-Sorts images into **Thermal/** and **RGB/** folders based on the `camera_source`
-XMP metadata tag embedded in each image file.
+Sorts images into **Thermal/**, **RGB/**, and **R-JPG/** folders based on
+filename pattern and the `camera_source` XMP metadata tag.
 
-| Tag value      | Destination folder |
-| -------------- | ------------------ |
-| `INFRARED`     | `Thermal/`         |
-| `MAIN_VISIBLE` | `RGB/`             |
+| Rule                           | Destination |
+| ------------------------------ | ----------- |
+| Filename ends in `_R.jpg`      | `R-JPG/`    |
+| `camera_source = INFRARED`     | `Thermal/`  |
+| `camera_source = MAIN_VISIBLE` | `RGB/`      |
 
-Files with no `camera_source` tag are left in place and reported as skipped.
+The filename check runs first — a `*_R.jpg` file goes to `R-JPG/` regardless
+of its metadata. Files that match none of the rules are left in place.
 
 ---
 
@@ -34,7 +36,7 @@ python sort_images.py <input_folder> [options]
 | Flag                    | Default          | Description                              |
 | ----------------------- | ---------------- | ---------------------------------------- |
 | `input`                 | *(required)*     | Folder containing images to sort         |
-| `-o`, `--output <dir>`  | same as input    | Where to create `Thermal/` and `RGB/`    |
+| `-o`, `--output <dir>`  | same as input    | Where to create `Thermal/`, `RGB/`, `R-JPG/` |
 | `-m`, `--move`          | off (copy)       | Move files instead of copying            |
 | `-w`, `--workers <N>`   | CPU core count   | Parallel workers                         |
 | `-v`, `--verbose`       | off              | Print each file as it's processed        |
@@ -52,6 +54,7 @@ Result:
 C:\Drone\Flight01\
   Thermal\      <- INFRARED images
   RGB\          <- MAIN_VISIBLE images
+  R-JPG\        <- radiometric *_R.jpg images
   (originals untouched)
 ```
 
@@ -95,7 +98,8 @@ one thread per CPU core, which fully saturates SSDs.
 Found 842 image file(s) — processing with 12 worker(s)...
 
 Done.
-  Copied to Thermal/ (INFRARED):     421
-  Copied to RGB/     (MAIN_VISIBLE):  421
-  Skipped (no camera_source tag):     0
+  Copied to Thermal/ (INFRARED):     300
+  Copied to RGB/     (MAIN_VISIBLE):  300
+  Copied to R-JPG/   (*_R.jpg):       242
+  Skipped (no match):                   0
 ```
